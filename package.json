@@ -1,0 +1,22 @@
+{
+  "name": "action-check-new-engine-release",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/luxtorpeda-dev/action-check-new-engine-release.git"
+  },
+  "author": "d10sfan",
+  "bugs": {
+    "url": "https://github.com/luxtorpeda-dev/action-check-new-engine-release/issues"
+  },
+  "homepage": "https://github.com/luxtorpeda-dev/action-check-new-engine-release#readme",
+  "dependencies": {
+    "@actions/core": "^1.10.1",
+    "@actions/github": "^6.0.0",
+    "@vercel/ncc": "^0.38.1",
+    "axios": "^1.6.7",
+    "octokit": "^3.1.2"
+  }
+}

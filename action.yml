@@ -1,0 +1,9 @@
+name: 'Check For New Releases'
+description: 'Checks engines for new releases'
+author: 'd10sfan'
+runs:
+    using: 'node20'
+    main: 'index.js'
+outputs:
+  matrix:
+    description: Matrix
