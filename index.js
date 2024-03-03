@@ -25,6 +25,10 @@ async function checkEngine(engineName, issuesFound) {
         return;
     }
 
+    if(envData.COMMIT_TAG_FREEZE) {
+        return;
+    }
+
     const {gitOrg, gitRepo} = await getGithubOrgRepo(engineFolderPath);
 
     const octokit = new Octokit({
