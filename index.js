@@ -12,6 +12,46 @@ const packagesEnginesPath = 'engines';
 
 console.log('Starting.');
 
+async function getGitOrgRepo(enginePath) {
+    const buildFilePath = path.join(enginePath, 'build.sh');
+    const buildFileStr = await fs.readFile(buildFilePath, 'utf-8');
+    const buildFileArr = buildFileStr.split('\n');
+
+    let sourcePushdFound = false;
+    let gitCloneLine = '';
+    for (let i = 0; i < buildFileArr.length; i++) {
+        const line = buildFileArr[i];
+
+        if (sourcePushdFound && !line.includes('git checkout')) {
+            break;
+        }
+
+        if (sourcePushdFound) {
+            const gitCloneUrl = gitCloneLine.split('git clone ')[1].split(' ')[0];
+
+            if (gitCloneUrl.includes('github.com')) {
+                const gitArr = gitCloneUrl.split('https://github.com/')[1].split('/');
+                return { gitRepo: gitArr[1].replace('.git', ''), gitOrg: gitArr[0], platform: 'github' };
+            }
+
+            if (gitCloneUrl.includes('bitbucket.org')) {
+                const gitArr = gitCloneUrl.split('https://bitbucket.org/')[1].split('/');
+                return { gitRepo: gitArr[1].replace('.git', ''), gitOrg: gitArr[0], platform: 'bitbucket' };
+            }
+
+            if (gitCloneUrl.includes('gitlab.com')) {
+                const gitArr = gitCloneUrl.split('https://gitlab.com/')[1].split('/');
+                return { gitRepo: gitArr[1].replace('.git', ''), gitOrg: gitArr[0], platform: 'gitlab' };
+            }
+        }
+
+        if (line === 'pushd source') {
+            gitCloneLine = buildFileArr[i - 1];
+            sourcePushdFound = true;
+        }
+    }
+}
+
 async function checkEngine(engineName, issuesFound) {
     const engineFolderPath = path.join(packagesEnginesPath, engineName);
     const envJsonPath = path.join(engineFolderPath, 'env.json');
