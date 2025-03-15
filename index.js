@@ -69,7 +69,14 @@ async function checkEngine(engineName, issuesFound) {
         return;
     }
 
-    const { gitOrg, gitRepo, platform } = await getGitOrgRepo(engineFolderPath);
+    const repoInfo = await getGitOrgRepo(engineFolderPath);
+
+    if (!repoInfo) {
+        console.warn(`No valid Git repository found for engine: ${engineName}`);
+        return;
+    }
+
+    const { gitOrg, gitRepo, platform } = repoInfo;
 
     console.log(`Checking git org ${gitOrg}, repo ${gitRepo} on ${platform}`);
 
