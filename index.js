@@ -109,7 +109,7 @@ async function checkEngine(engineName, issuesFound) {
 }
 
 async function checkGithubTags(gitOrg, gitRepo, currentTag, issuesFound, engineName) {
-    const octokit = new Octokit({ auth: core.getInput('token') });
+    const octokit = new Octokit({ auth: core.getInput('github_token') });
 
     try {
         const allTags = await octokit.request('GET /repos/{owner}/{repo}/tags', {
