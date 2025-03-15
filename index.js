@@ -112,17 +112,29 @@ async function checkGithubTags(gitOrg, gitRepo, currentTag, issuesFound, engineN
     const octokit = new Octokit({ auth: core.getInput('github_token') });
 
     try {
-        const allTags = await octokit.request('GET /repos/{owner}/{repo}/tags', {
+        const latestRelease = await octokit.request('GET /repos/{owner}/{repo}/releases/latest', {
             owner: gitOrg,
-            repo: gitRepo
+            repo: gitRepo,
+            headers: { 'X-GitHub-Api-Version': '2022-11-28' }
         });
 
-        const latestTag = allTags.data[0]?.name;
+        const latestTag = latestRelease?.data?.tag_name;
         if (latestTag && isValidTag(latestTag, currentTag)) {
             issuesFound.push({ engineName, newTag: latestTag, oldTag: currentTag });
         }
-    } catch (error) {
-        console.error(`Error fetching GitHub tags for ${gitOrg}/${gitRepo}:`, error.message);
+    } catch {
+        try {
+            const allTags = await octokit.request('GET /repos/{owner}/{repo}/tags', {
+                owner: gitOrg,
+                repo: gitRepo,
+                headers: { 'X-GitHub-Api-Version': '2022-11-28' }
+            });
+
+            const latestTag = allTags.data[0]?.name;
+            if (latestTag && isValidTag(latestTag, currentTag)) {
+                issuesFound.push({ engineName, newTag: latestTag, oldTag: currentTag });
+            }
+        } catch {}
     }
 }
 
@@ -147,11 +159,17 @@ async function checkGithubCommits(gitOrg, gitRepo, currentHash, issuesFound, eng
 
 async function checkBitbucketTags(gitOrg, gitRepo, currentTag, issuesFound, engineName) {
     try {
-        const response = await axios.get(`https://api.bitbucket.org/2.0/repositories/${gitOrg}/${gitRepo}/refs/tags?sort=-target.date`);
-        const latestTag = response.data.values[0]?.name;
+        const response = await axios.get(
+            `https://api.bitbucket.org/2.0/repositories/${gitOrg}/${gitRepo}/refs/tags?sort=-target.date`
+        );
 
-        if (latestTag && isValidTag(latestTag, currentTag)) {
-            issuesFound.push({ engineName, newTag: latestTag, oldTag: currentTag });
+        const tags = response.data.values.map(tag => tag.name);
+
+        if (tags.length > 0) {
+            const latestTag = tags[0]; // Now properly sorted by creation date
+            if (isValidTag(latestTag, currentTag)) {
+                issuesFound.push({ engineName, newTag: latestTag, oldTag: currentTag });
+            }
         }
     } catch (error) {
         console.error(`Error fetching Bitbucket tags for ${gitOrg}/${gitRepo}:`, error.message);
@@ -173,11 +191,16 @@ async function checkBitbucketCommits(gitOrg, gitRepo, currentHash, issuesFound, 
 
 async function checkGitlabTags(gitOrg, gitRepo, currentTag, issuesFound, engineName) {
     try {
-        const response = await axios.get(`https://gitlab.com/api/v4/projects/${encodeURIComponent(`${gitOrg}/${gitRepo}`)}/repository/tags`);
-        const latestTag = response.data[0]?.name;
+        const response = await axios.get(
+            `https://gitlab.com/api/v4/projects/${encodeURIComponent(`${gitOrg}/${gitRepo}`)}/repository/tags`
+        );
 
-        if (latestTag && isValidTag(latestTag, currentTag)) {
-            issuesFound.push({ engineName, newTag: latestTag, oldTag: currentTag });
+        const tags = response.data;
+        if (tags.length > 0) {
+            const latestTag = tags[0].name;
+            if (isValidTag(latestTag, currentTag)) {
+                issuesFound.push({ engineName, newTag: latestTag, oldTag: currentTag });
+            }
         }
     } catch (error) {
         console.error(`Error fetching GitLab tags for ${gitOrg}/${gitRepo}:`, error.message);
