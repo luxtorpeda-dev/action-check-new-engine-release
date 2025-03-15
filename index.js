@@ -6,7 +6,7 @@ const { context, GitHub } = require('@actions/github');
 const fs = require('fs').promises;
 const path = require('path');
 const axios = require('axios');
-import { Octokit, App } from "octokit";
+import { Octokit } from "octokit";
 
 const packagesEnginesPath = 'engines';
 
@@ -15,6 +15,7 @@ console.log('Starting.');
 async function checkEngine(engineName, issuesFound) {
     const engineFolderPath = path.join(packagesEnginesPath, engineName);
     const envJsonPath = path.join(engineFolderPath, 'env.json');
+
     try {
         await fs.access(envJsonPath);
     } catch {
@@ -24,16 +25,22 @@ async function checkEngine(engineName, issuesFound) {
     const envJsonStr = await fs.readFile(envJsonPath, 'utf-8');
     const envData = JSON.parse(envJsonStr);
 
-    if(!envData.COMMIT_TAG) {
+    if (!envData.COMMIT_TAG || envData.COMMIT_TAG_FREEZE) {
         return;
     }
 
-    if(envData.COMMIT_TAG_FREEZE) {
-        return;
+    const { gitOrg, gitRepo, platform } = await getGitOrgRepo(engineFolderPath);
+
+    if (platform === 'github') {
+        await checkGithubTags(gitOrg, gitRepo, envData.COMMIT_TAG, issuesFound, engineName);
+    } else if (platform === 'bitbucket') {
+        await checkBitbucketTags(gitOrg, gitRepo, envData.COMMIT_TAG, issuesFound, engineName);
+    } else if (platform === 'gitlab') {
+        await checkGitlabTags(gitOrg, gitRepo, envData.COMMIT_TAG, issuesFound, engineName);
     }
+}
 
-    const {gitOrg, gitRepo} = await getGithubOrgRepo(engineFolderPath);
-
+async function checkGithubTags(gitOrg, gitRepo, currentTag, issuesFound, engineName) {
     const octokit = new Octokit({
         auth: core.getInput('token')
     });
@@ -42,70 +49,105 @@ async function checkEngine(engineName, issuesFound) {
         const latestRelease = await octokit.request('GET /repos/{owner}/{repo}/releases/latest', {
             owner: gitOrg,
             repo: gitRepo,
-            headers: {
-                'X-GitHub-Api-Version': '2022-11-28'
-            }
+            headers: { 'X-GitHub-Api-Version': '2022-11-28' }
         });
 
-        if(latestRelease?.data?.tag_name && latestRelease.data?.tag_name !== envData.COMMIT_TAG) {
-            issuesFound.push({
-                engineName: engineName,
-                newTag: latestRelease.data.tag_name,
-                oldTag: envData.COMMIT_TAG
-            });
+        const latestTag = latestRelease?.data?.tag_name;
+        if (latestTag && isValidTag(latestTag, currentTag)) {
+            issuesFound.push({ engineName, newTag: latestTag, oldTag: currentTag });
         }
     } catch {
         try {
             const allTags = await octokit.request('GET /repos/{owner}/{repo}/tags', {
                 owner: gitOrg,
                 repo: gitRepo,
-                headers: {
-                    'X-GitHub-Api-Version': '2022-11-28'
-                }
+                headers: { 'X-GitHub-Api-Version': '2022-11-28' }
             });
 
-            const latestTag = allTags.data[0].name;
-            if(latestTag !== envData.COMMIT_TAG) {
-                issuesFound.push({
-                    engineName: engineName,
-                    newTag: latestTag,
-                    oldTag: envData.COMMIT_TAG
-                });
+            const latestTag = allTags.data[0]?.name;
+            if (latestTag && isValidTag(latestTag, currentTag)) {
+                issuesFound.push({ engineName, newTag: latestTag, oldTag: currentTag });
             }
-        }
-        catch {}
+        } catch {}
     }
 }
 
-async function getGithubOrgRepo(enginePath) {
+async function checkBitbucketTags(gitOrg, gitRepo, currentTag, issuesFound, engineName) {
+    try {
+        const response = await axios.get(
+            `https://api.bitbucket.org/2.0/repositories/${gitOrg}/${gitRepo}/refs/tags`
+        );
+
+        const tags = response.data.values;
+        if (tags.length > 0) {
+            const latestTag = tags[tags.length - 1].name;
+            if (isValidTag(latestTag, currentTag)) {
+                issuesFound.push({ engineName, newTag: latestTag, oldTag: currentTag });
+            }
+        }
+    } catch (error) {
+        console.error(`Error fetching Bitbucket tags for ${gitOrg}/${gitRepo}:`, error.message);
+    }
+}
+
+async function checkGitlabTags(gitOrg, gitRepo, currentTag, issuesFound, engineName) {
+    try {
+        const response = await axios.get(
+            `https://gitlab.com/api/v4/projects/${encodeURIComponent(`${gitOrg}/${gitRepo}`)}/repository/tags`
+        );
+
+        const tags = response.data;
+        if (tags.length > 0) {
+            const latestTag = tags[0].name;
+            if (isValidTag(latestTag, currentTag)) {
+                issuesFound.push({ engineName, newTag: latestTag, oldTag: currentTag });
+            }
+        }
+    } catch (error) {
+        console.error(`Error fetching GitLab tags for ${gitOrg}/${gitRepo}:`, error.message);
+    }
+}
+
+// Helper function to check if the tag is valid (not "latest" or "nightly")
+function isValidTag(newTag, currentTag) {
+    const invalidTags = ['latest', 'nightly'];
+    return newTag !== currentTag && !invalidTags.includes(newTag.toLowerCase());
+}
+
+async function getGitOrgRepo(enginePath) {
     const buildFilePath = path.join(enginePath, 'build.sh');
     const buildFileStr = await fs.readFile(buildFilePath, 'utf-8');
     const buildFileArr = buildFileStr.split('\n');
 
     let sourcePushdFound = false;
     let gitCloneLine = '';
-    for(let i = 0; i < buildFileArr.length; i++) {
+    for (let i = 0; i < buildFileArr.length; i++) {
         const line = buildFileArr[i];
 
-        if(sourcePushdFound && !line.includes('git checkout')) {
+        if (sourcePushdFound && !line.includes('git checkout')) {
             break;
         }
 
-        if(sourcePushdFound) {
-            let commitHash = '';
-
+        if (sourcePushdFound) {
             const gitCloneUrl = gitCloneLine.split('git clone ')[1].split(' ')[0];
 
-            if(gitCloneUrl.includes('github.com')) {
+            if (gitCloneUrl.includes('github.com')) {
                 const gitArr = gitCloneUrl.split('https://github.com/')[1].split('/');
-                const gitOrg = gitArr[0];
-                const gitRepo = gitArr[1].replace('.git', '');
+                return { gitRepo: gitArr[1].replace('.git', ''), gitOrg: gitArr[0], platform: 'github' };
+            }
 
-                return {gitRepo, gitOrg};
+            if (gitCloneUrl.includes('bitbucket.org')) {
+                const gitArr = gitCloneUrl.split('https://bitbucket.org/')[1].split('/');
+                return { gitRepo: gitArr[1].replace('.git', ''), gitOrg: gitArr[0], platform: 'bitbucket' };
+            }
+
+            if (gitCloneUrl.includes('gitlab.com')) {
+                const gitArr = gitCloneUrl.split('https://gitlab.com/')[1].split('/');
+                return { gitRepo: gitArr[1].replace('.git', ''), gitOrg: gitArr[0], platform: 'gitlab' };
             }
         }
 
-        if(line === 'pushd source') {
+        if (line === 'pushd source') {
             gitCloneLine = buildFileArr[i - 1];
             sourcePushdFound = true;
         }
@@ -115,28 +157,18 @@ async function getGithubOrgRepo(enginePath) {
 async function run() {
     try {
         const engineNames = await fs.readdir(packagesEnginesPath);
-
         const issuesFound = [];
 
-        for(let engine of engineNames) {
+        for (let engine of engineNames) {
             await checkEngine(engine, issuesFound);
         }
 
         console.info(`issuesFound: ${JSON.stringify(issuesFound, null, 4)}`);
 
-        const matrix = {};
+        const matrix = issuesFound.length ? { include: issuesFound } : {};
 
-        if(issuesFound.length) {
-            matrix.include = [];
-        }
-        
-        for(let downloadIssue of issuesFound) {
-            matrix.include.push(downloadIssue);
-        }
-        
         core.setOutput('matrix', JSON.stringify(matrix));
-    }
-    catch (error) {
+    } catch (error) {
         core.setFailed(error.message);
     }
 }
