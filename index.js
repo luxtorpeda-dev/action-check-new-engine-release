@@ -142,6 +142,7 @@ async function checkGithubCommits(gitOrg, gitRepo, currentHash, issuesFound, eng
     const octokit = new Octokit({ auth: core.getInput('token') });
 
     try {
+        // Get latest commit
         const response = await octokit.request('GET /repos/{owner}/{repo}/commits', {
             owner: gitOrg,
             repo: gitRepo
@@ -149,7 +150,16 @@ async function checkGithubCommits(gitOrg, gitRepo, currentHash, issuesFound, eng
 
         const latestCommit = response.data[0];
 
-        if (latestCommit && isNewerCommit(currentHash, latestCommit.sha, latestCommit.commit.author.date)) {
+        // Get current commit's date
+        const currentCommitResponse = await octokit.request('GET /repos/{owner}/{repo}/commits/{sha}', {
+            owner: gitOrg,
+            repo: gitRepo,
+            sha: currentHash
+        });
+
+        const currentCommitDate = currentCommitResponse.data.commit.author.date;
+
+        if (latestCommit && isNewerCommit(currentHash, latestCommit.sha, latestCommit.commit.author.date, currentCommitDate)) {
             issuesFound.push({ engineName, newHash: latestCommit.sha.substring(0, 7), oldHash: currentHash });
         }
     } catch (error) {
@@ -178,10 +188,15 @@ async function checkBitbucketTags(gitOrg, gitRepo, currentTag, issuesFound, engi
 
 async function checkBitbucketCommits(gitOrg, gitRepo, currentHash, issuesFound, engineName) {
     try {
+        // Get latest commit
         const response = await axios.get(`https://api.bitbucket.org/2.0/repositories/${gitOrg}/${gitRepo}/commits`);
         const latestCommit = response.data.values[0];
 
-        if (latestCommit && isNewerCommit(currentHash, latestCommit.hash, latestCommit.date)) {
+        // Get current commit's date
+        const currentCommitResponse = await axios.get(`https://api.bitbucket.org/2.0/repositories/${gitOrg}/${gitRepo}/commit/${currentHash}`);
+        const currentCommitDate = currentCommitResponse.data.date;
+
+        if (latestCommit && isNewerCommit(currentHash, latestCommit.hash, latestCommit.date, currentCommitDate)) {
             issuesFound.push({ engineName, newHash: latestCommit.hash.substring(0, 7), oldHash: currentHash });
         }
     } catch (error) {
@@ -209,10 +224,17 @@ async function checkGitlabTags(gitOrg, gitRepo, currentTag, issuesFound, engineN
 
 async function checkGitlabCommits(gitOrg, gitRepo, currentHash, issuesFound, engineName) {
     try {
+        // Get latest commit
         const response = await axios.get(`https://gitlab.com/api/v4/projects/${encodeURIComponent(`${gitOrg}/${gitRepo}`)}/repository/commits`);
         const latestCommit = response.data[0];
 
-        if (latestCommit && isNewerCommit(currentHash, latestCommit.id, latestCommit.created_at)) {
+        // Get current commit's date
+        const currentCommitResponse = await axios.get(
+            `https://gitlab.com/api/v4/projects/${encodeURIComponent(`${gitOrg}/${gitRepo}`)}/repository/commits/${currentHash}`
+        );
+        const currentCommitDate = currentCommitResponse.data.committed_date;
+
+        if (latestCommit && isNewerCommit(currentHash, latestCommit.id, latestCommit.committed_date, currentCommitDate)) {
             issuesFound.push({ engineName, newHash: latestCommit.id.substring(0, 7), oldHash: currentHash });
         }
     } catch (error) {
@@ -224,16 +246,19 @@ function isValidTag(newTag, currentTag) {
     return newTag !== currentTag && !['latest', 'nightly'].includes(newTag.toLowerCase());
 }
 
-function isNewerCommit(currentHash, latestHash, latestDateStr) {
+function isNewerCommit(currentHash, latestHash, latestDateStr, currentDateStr) {
     if (currentHash.startsWith(latestHash) || latestHash.startsWith(currentHash)) {
-        return false;
+        return false; // Same commit, no update needed
     }
 
     const latestDate = new Date(latestDateStr);
-    const oneWeekAfterCurrent = new Date(latestDate);
-    oneWeekAfterCurrent.setDate(oneWeekAfterCurrent.getDate() - 7);
+    const currentDate = new Date(currentDateStr);
 
-    return latestDate > oneWeekAfterCurrent;
+    // Check if the latest commit is at least 7 days newer than the current commit
+    const oneWeekAfterCurrent = new Date(currentDate);
+    oneWeekAfterCurrent.setDate(oneWeekAfterCurrent.getDate() + 7);
+
+    return latestDate >= oneWeekAfterCurrent;
 }
 
 async function run() {
