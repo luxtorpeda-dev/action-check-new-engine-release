@@ -77,12 +77,13 @@ async function checkGithubTags(gitOrg, gitRepo, currentTag, issuesFound, engineN
 async function checkBitbucketTags(gitOrg, gitRepo, currentTag, issuesFound, engineName) {
     try {
         const response = await axios.get(
-            `https://api.bitbucket.org/2.0/repositories/${gitOrg}/${gitRepo}/refs/tags`
+            `https://api.bitbucket.org/2.0/repositories/${gitOrg}/${gitRepo}/refs/tags?sort=-target.date`
         );
 
-        const tags = response.data.values;
+        const tags = response.data.values.map(tag => tag.name);
+
         if (tags.length > 0) {
-            const latestTag = tags[tags.length - 1].name;
+            const latestTag = tags[0]; // Now properly sorted by creation date
             if (isValidTag(latestTag, currentTag)) {
                 issuesFound.push({ engineName, newTag: latestTag, oldTag: currentTag });
             }
