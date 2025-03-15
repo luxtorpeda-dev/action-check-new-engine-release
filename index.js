@@ -25,136 +25,141 @@ async function checkEngine(engineName, issuesFound) {
     const envJsonStr = await fs.readFile(envJsonPath, 'utf-8');
     const envData = JSON.parse(envJsonStr);
 
-    if (!envData.COMMIT_TAG || envData.COMMIT_TAG_FREEZE) {
+    if (envData.COMMIT_TAG_FREEZE || envData.COMMIT_HASH_FREEZE) {
         return;
     }
 
     const { gitOrg, gitRepo, platform } = await getGitOrgRepo(engineFolderPath);
 
-    console.log(`checking git org ${gitOrg} repo ${gitRepo} on ${platform}`);
+    console.log(`Checking git org ${gitOrg}, repo ${gitRepo} on ${platform}`);
 
     if (platform === 'github') {
-        await checkGithubTags(gitOrg, gitRepo, envData.COMMIT_TAG, issuesFound, engineName);
+        if (envData.COMMIT_TAG) {
+            await checkGithubTags(gitOrg, gitRepo, envData.COMMIT_TAG, issuesFound, engineName);
+        }
+        if (envData.COMMIT_HASH) {
+            await checkGithubCommits(gitOrg, gitRepo, envData.COMMIT_HASH, issuesFound, engineName);
+        }
     } else if (platform === 'bitbucket') {
-        await checkBitbucketTags(gitOrg, gitRepo, envData.COMMIT_TAG, issuesFound, engineName);
+        if (envData.COMMIT_TAG) {
+            await checkBitbucketTags(gitOrg, gitRepo, envData.COMMIT_TAG, issuesFound, engineName);
+        }
+        if (envData.COMMIT_HASH) {
+            await checkBitbucketCommits(gitOrg, gitRepo, envData.COMMIT_HASH, issuesFound, engineName);
+        }
     } else if (platform === 'gitlab') {
-        await checkGitlabTags(gitOrg, gitRepo, envData.COMMIT_TAG, issuesFound, engineName);
+        if (envData.COMMIT_TAG) {
+            await checkGitlabTags(gitOrg, gitRepo, envData.COMMIT_TAG, issuesFound, engineName);
+        }
+        if (envData.COMMIT_HASH) {
+            await checkGitlabCommits(gitOrg, gitRepo, envData.COMMIT_HASH, issuesFound, engineName);
+        }
     }
 }
 
 async function checkGithubTags(gitOrg, gitRepo, currentTag, issuesFound, engineName) {
-    const octokit = new Octokit({
-        auth: core.getInput('token')
-    });
+    const octokit = new Octokit({ auth: core.getInput('token') });
 
     try {
-        const latestRelease = await octokit.request('GET /repos/{owner}/{repo}/releases/latest', {
+        const allTags = await octokit.request('GET /repos/{owner}/{repo}/tags', {
             owner: gitOrg,
-            repo: gitRepo,
-            headers: { 'X-GitHub-Api-Version': '2022-11-28' }
+            repo: gitRepo
         });
 
-        const latestTag = latestRelease?.data?.tag_name;
+        const latestTag = allTags.data[0]?.name;
         if (latestTag && isValidTag(latestTag, currentTag)) {
             issuesFound.push({ engineName, newTag: latestTag, oldTag: currentTag });
         }
-    } catch {
-        try {
-            const allTags = await octokit.request('GET /repos/{owner}/{repo}/tags', {
-                owner: gitOrg,
-                repo: gitRepo,
-                headers: { 'X-GitHub-Api-Version': '2022-11-28' }
-            });
+    } catch (error) {
+        console.error(`Error fetching GitHub tags for ${gitOrg}/${gitRepo}:`, error.message);
+    }
+}
 
-            const latestTag = allTags.data[0]?.name;
-            if (latestTag && isValidTag(latestTag, currentTag)) {
-                issuesFound.push({ engineName, newTag: latestTag, oldTag: currentTag });
-            }
-        } catch {}
+async function checkGithubCommits(gitOrg, gitRepo, currentHash, issuesFound, engineName) {
+    const octokit = new Octokit({ auth: core.getInput('token') });
+
+    try {
+        const response = await octokit.request('GET /repos/{owner}/{repo}/commits', {
+            owner: gitOrg,
+            repo: gitRepo
+        });
+
+        const latestCommit = response.data[0];
+
+        if (latestCommit && isNewerCommit(currentHash, latestCommit.sha, latestCommit.commit.author.date)) {
+            issuesFound.push({ engineName, newHash: latestCommit.sha.substring(0, 7), oldHash: currentHash });
+        }
+    } catch (error) {
+        console.error(`Error fetching GitHub commits for ${gitOrg}/${gitRepo}:`, error.message);
     }
 }
 
 async function checkBitbucketTags(gitOrg, gitRepo, currentTag, issuesFound, engineName) {
     try {
-        const response = await axios.get(
-            `https://api.bitbucket.org/2.0/repositories/${gitOrg}/${gitRepo}/refs/tags?sort=-target.date`
-        );
+        const response = await axios.get(`https://api.bitbucket.org/2.0/repositories/${gitOrg}/${gitRepo}/refs/tags?sort=-target.date`);
+        const latestTag = response.data.values[0]?.name;
 
-        const tags = response.data.values.map(tag => tag.name);
-
-        if (tags.length > 0) {
-            const latestTag = tags[0]; // Now properly sorted by creation date
-            if (isValidTag(latestTag, currentTag)) {
-                issuesFound.push({ engineName, newTag: latestTag, oldTag: currentTag });
-            }
+        if (latestTag && isValidTag(latestTag, currentTag)) {
+            issuesFound.push({ engineName, newTag: latestTag, oldTag: currentTag });
         }
     } catch (error) {
         console.error(`Error fetching Bitbucket tags for ${gitOrg}/${gitRepo}:`, error.message);
     }
 }
 
+async function checkBitbucketCommits(gitOrg, gitRepo, currentHash, issuesFound, engineName) {
+    try {
+        const response = await axios.get(`https://api.bitbucket.org/2.0/repositories/${gitOrg}/${gitRepo}/commits`);
+        const latestCommit = response.data.values[0];
+
+        if (latestCommit && isNewerCommit(currentHash, latestCommit.hash, latestCommit.date)) {
+            issuesFound.push({ engineName, newHash: latestCommit.hash.substring(0, 7), oldHash: currentHash });
+        }
+    } catch (error) {
+        console.error(`Error fetching Bitbucket commits for ${gitOrg}/${gitRepo}:`, error.message);
+    }
+}
+
 async function checkGitlabTags(gitOrg, gitRepo, currentTag, issuesFound, engineName) {
     try {
-        const response = await axios.get(
-            `https://gitlab.com/api/v4/projects/${encodeURIComponent(`${gitOrg}/${gitRepo}`)}/repository/tags`
-        );
+        const response = await axios.get(`https://gitlab.com/api/v4/projects/${encodeURIComponent(`${gitOrg}/${gitRepo}`)}/repository/tags`);
+        const latestTag = response.data[0]?.name;
 
-        const tags = response.data;
-        if (tags.length > 0) {
-            const latestTag = tags[0].name;
-            if (isValidTag(latestTag, currentTag)) {
-                issuesFound.push({ engineName, newTag: latestTag, oldTag: currentTag });
-            }
+        if (latestTag && isValidTag(latestTag, currentTag)) {
+            issuesFound.push({ engineName, newTag: latestTag, oldTag: currentTag });
         }
     } catch (error) {
         console.error(`Error fetching GitLab tags for ${gitOrg}/${gitRepo}:`, error.message);
     }
 }
 
-// Helper function to check if the tag is valid (not "latest" or "nightly")
-function isValidTag(newTag, currentTag) {
-    const invalidTags = ['latest', 'nightly'];
-    return newTag !== currentTag && !invalidTags.includes(newTag.toLowerCase());
+async function checkGitlabCommits(gitOrg, gitRepo, currentHash, issuesFound, engineName) {
+    try {
+        const response = await axios.get(`https://gitlab.com/api/v4/projects/${encodeURIComponent(`${gitOrg}/${gitRepo}`)}/repository/commits`);
+        const latestCommit = response.data[0];
+
+        if (latestCommit && isNewerCommit(currentHash, latestCommit.id, latestCommit.created_at)) {
+            issuesFound.push({ engineName, newHash: latestCommit.id.substring(0, 7), oldHash: currentHash });
+        }
+    } catch (error) {
+        console.error(`Error fetching GitLab commits for ${gitOrg}/${gitRepo}:`, error.message);
+    }
 }
 
-async function getGitOrgRepo(enginePath) {
-    const buildFilePath = path.join(enginePath, 'build.sh');
-    const buildFileStr = await fs.readFile(buildFilePath, 'utf-8');
-    const buildFileArr = buildFileStr.split('\n');
+function isValidTag(newTag, currentTag) {
+    return newTag !== currentTag && !['latest', 'nightly'].includes(newTag.toLowerCase());
+}
 
-    let sourcePushdFound = false;
-    let gitCloneLine = '';
-    for (let i = 0; i < buildFileArr.length; i++) {
-        const line = buildFileArr[i];
-
-        if (sourcePushdFound && !line.includes('git checkout')) {
-            break;
-        }
-
-        if (sourcePushdFound) {
-            const gitCloneUrl = gitCloneLine.split('git clone ')[1].split(' ')[0];
-
-            if (gitCloneUrl.includes('github.com')) {
-                const gitArr = gitCloneUrl.split('https://github.com/')[1].split('/');
-                return { gitRepo: gitArr[1].replace('.git', ''), gitOrg: gitArr[0], platform: 'github' };
-            }
-
-            if (gitCloneUrl.includes('bitbucket.org')) {
-                const gitArr = gitCloneUrl.split('https://bitbucket.org/')[1].split('/');
-                return { gitRepo: gitArr[1].replace('.git', ''), gitOrg: gitArr[0], platform: 'bitbucket' };
-            }
-
-            if (gitCloneUrl.includes('gitlab.com')) {
-                const gitArr = gitCloneUrl.split('https://gitlab.com/')[1].split('/');
-                return { gitRepo: gitArr[1].replace('.git', ''), gitOrg: gitArr[0], platform: 'gitlab' };
-            }
-        }
-
-        if (line === 'pushd source') {
-            gitCloneLine = buildFileArr[i - 1];
-            sourcePushdFound = true;
-        }
+function isNewerCommit(currentHash, latestHash, latestDateStr) {
+    if (currentHash.startsWith(latestHash) || latestHash.startsWith(currentHash)) {
+        return false;
     }
+
+    const latestDate = new Date(latestDateStr);
+    const oneWeekAfterCurrent = new Date(latestDate);
+    oneWeekAfterCurrent.setDate(oneWeekAfterCurrent.getDate() - 7);
+
+    return latestDate > oneWeekAfterCurrent;
 }
 
 async function run() {
@@ -166,11 +171,7 @@ async function run() {
             await checkEngine(engine, issuesFound);
         }
 
-        console.info(`issuesFound: ${JSON.stringify(issuesFound, null, 4)}`);
-
-        const matrix = issuesFound.length ? { include: issuesFound } : {};
-
-        core.setOutput('matrix', JSON.stringify(matrix));
+        core.setOutput('matrix', JSON.stringify({ include: issuesFound }));
     } catch (error) {
         core.setFailed(error.message);
     }
