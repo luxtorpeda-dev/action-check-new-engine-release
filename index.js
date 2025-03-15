@@ -31,6 +31,8 @@ async function checkEngine(engineName, issuesFound) {
 
     const { gitOrg, gitRepo, platform } = await getGitOrgRepo(engineFolderPath);
 
+    console.log(`checking git org ${gitOrg} repo ${gitRepo} on ${platform}`);
+
     if (platform === 'github') {
         await checkGithubTags(gitOrg, gitRepo, envData.COMMIT_TAG, issuesFound, engineName);
     } else if (platform === 'bitbucket') {
