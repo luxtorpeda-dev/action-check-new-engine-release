@@ -43,6 +43,11 @@ async function getGitOrgRepo(enginePath) {
                 const gitArr = gitCloneUrl.split('https://gitlab.com/')[1].split('/');
                 return { gitRepo: gitArr[1].replace('.git', ''), gitOrg: gitArr[0], platform: 'gitlab' };
             }
+
+            if (gitCloneUrl.includes('voidpoint.io')) {
+                const gitArr = gitCloneUrl.split('https://voidpoint.io/')[1].split('/');
+                return { gitRepo: gitArr.slice(1).join('/').replace('.git', ''), gitOrg: gitArr[0], platform: 'voidpoint' };
+            }
         }
 
         if (line === 'pushd source') {
@@ -105,6 +110,13 @@ async function checkEngine(engineName, issuesFound) {
         if (envData.COMMIT_HASH) {
             await checkGitlabCommits(gitOrg, gitRepo, envData.COMMIT_HASH, issuesFound, engineName);
         }
+    }  else if (platform === 'voidpoint') {
+        if (envData.COMMIT_TAG) {
+            await checkVoidpointTags(gitOrg, gitRepo, envData.COMMIT_TAG, issuesFound, engineName);
+        }
+        if (envData.COMMIT_HASH) {
+            await checkVoidpointCommits(gitOrg, gitRepo, envData.COMMIT_HASH, issuesFound, engineName);
+        }
     }
 }
 
@@ -164,6 +176,44 @@ async function checkGithubCommits(gitOrg, gitRepo, currentHash, issuesFound, eng
         }
     } catch (error) {
         console.error(`Error fetching GitHub commits for ${gitOrg}/${gitRepo}:`, error.message);
+    }
+}
+
+async function checkVoidpointTags(gitOrg, gitRepo, currentTag, issuesFound, engineName) {
+    try {
+        const response = await axios.get(
+            `https://voidpoint.io/api/v4/projects/${encodeURIComponent(`${gitOrg}/${gitRepo}`)}/repository/tags`
+        );
+
+        const tags = response.data;
+        if (tags.length > 0) {
+            const latestTag = tags[0].name;
+            if (isValidTag(latestTag, currentTag)) {
+                issuesFound.push({ engineName, newTag: latestTag, oldTag: currentTag });
+            }
+        }
+    } catch (error) {
+        console.error(`Error fetching Voidpoint tags for ${gitOrg}/${gitRepo}:`, error.message);
+    }
+}
+
+async function checkVoidpointCommits(gitOrg, gitRepo, currentHash, issuesFound, engineName) {
+    try {
+        // Get latest commit
+        const response = await axios.get(`https://voidpoint.io/api/v4/projects/${encodeURIComponent(`${gitOrg}/${gitRepo}`)}/repository/commits`);
+        const latestCommit = response.data[0];
+
+        // Get current commit's date
+        const currentCommitResponse = await axios.get(
+            `https://voidpoint.io/api/v4/projects/${encodeURIComponent(`${gitOrg}/${gitRepo}`)}/repository/commits/${currentHash}`
+        );
+        const currentCommitDate = currentCommitResponse.data.committed_date;
+
+        if (latestCommit && isNewerCommit(currentHash, latestCommit.id, latestCommit.committed_date, currentCommitDate)) {
+            issuesFound.push({ engineName, newHash: latestCommit.id.substring(0, 7), oldHash: currentHash });
+        }
+    } catch (error) {
+        console.error(`Error fetching Voidpoint commits for ${gitOrg}/${gitRepo}:`, error.message);
     }
 }
 
