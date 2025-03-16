@@ -248,17 +248,17 @@ function isValidTag(newTag, currentTag) {
 
 function isNewerCommit(currentHash, latestHash, latestDateStr, currentDateStr) {
     if (currentHash.startsWith(latestHash) || latestHash.startsWith(currentHash)) {
-        return false; // Same commit, no update needed
+        return false; // The commit hashes match, so no update needed
     }
 
     const latestDate = new Date(latestDateStr);
     const currentDate = new Date(currentDateStr);
 
-    // Check if the latest commit is at least 7 days newer than the current commit
-    const oneWeekAfterCurrent = new Date(currentDate);
-    oneWeekAfterCurrent.setDate(oneWeekAfterCurrent.getDate() + 7);
+    // Ensure latest commit is at least **7 full days newer**
+    const sevenDaysLater = new Date(currentDate);
+    sevenDaysLater.setDate(currentDate.getDate() + 7);
 
-    return latestDate >= oneWeekAfterCurrent;
+    return latestDate >= sevenDaysLater;
 }
 
 async function run() {
