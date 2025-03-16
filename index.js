@@ -7,6 +7,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const axios = require('axios');
 import { Octokit } from "octokit";
+const { execSync } = require('child_process');
 
 const packagesEnginesPath = 'engines';
 
@@ -47,6 +48,11 @@ async function getGitOrgRepo(enginePath) {
             if (gitCloneUrl.includes('voidpoint.io')) {
                 const gitArr = gitCloneUrl.split('https://voidpoint.io/')[1].split('/');
                 return { gitRepo: gitArr.slice(1).join('/').replace('.git', ''), gitOrg: gitArr[0], platform: 'voidpoint' };
+            }
+
+            if (gitCloneUrl.includes('git.code.sf.net')) {
+                const gitArr = gitCloneUrl.split('https://git.code.sf.net/p/')[1].split('/');
+                return { gitRepo: gitArr[1].replace('.git', ''), gitOrg: gitArr[0], platform: 'sourceforge' };
             }
         }
 
@@ -116,6 +122,13 @@ async function checkEngine(engineName, issuesFound) {
         }
         if (envData.COMMIT_HASH) {
             await checkVoidpointCommits(gitOrg, gitRepo, envData.COMMIT_HASH, issuesFound, engineName);
+        }
+    } else if (platform === 'sourceforge') {
+        if (envData.COMMIT_TAG) {
+            await checkSourceForgeTags(gitOrg, gitRepo, envData.COMMIT_TAG, issuesFound, engineName);
+        }
+        if (envData.COMMIT_HASH) {
+            await checkSourceForgeCommits(gitOrg, gitRepo, envData.COMMIT_HASH, issuesFound, engineName);
         }
     }
 }
@@ -214,6 +227,50 @@ async function checkVoidpointCommits(gitOrg, gitRepo, currentHash, issuesFound, 
         }
     } catch (error) {
         console.error(`Error fetching Voidpoint commits for ${gitOrg}/${gitRepo}:`, error.message);
+    }
+}
+
+async function checkSourceForgeTags(gitOrg, gitRepo, currentTag, issuesFound, engineName) {
+    try {
+        console.log(`Fetching SourceForge tags for ${gitOrg}/${gitRepo}`);
+
+        const repoUrl = `https://git.code.sf.net/p/${gitOrg}/${gitRepo}`;
+
+        // Get the latest tag
+        const latestTag = execSync(`git ls-remote --tags ${repoUrl} | awk -F'/' '{print $NF}' | sort -V | tail -n 1`).toString().trim();
+
+        if (latestTag && isValidTag(latestTag, currentTag)) {
+            issuesFound.push({ engineName, newTag: latestTag, oldTag: currentTag });
+        }
+    } catch (error) {
+        console.error(`Error fetching SourceForge tags for ${gitOrg}/${gitRepo}:`, error.message);
+    }
+}
+
+async function checkSourceForgeCommits(gitOrg, gitRepo, currentHash, issuesFound, engineName) {
+    try {
+        console.log(`Fetching SourceForge commits for ${gitOrg}/${gitRepo}`);
+
+        const repoUrl = `https://git.code.sf.net/p/${gitOrg}/${gitRepo}`;
+
+        // Clone the repo into a temp directory
+        execSync(`git clone --depth=1 ${repoUrl} temp_repo`, { stdio: 'ignore' });
+
+        // Get the latest commit hash and date
+        const latestCommit = execSync(`git -C temp_repo log -1 --format="%H %cI"`).toString().trim();
+        const [latestHash, latestDate] = latestCommit.split(' ');
+
+        // Get current commit's date
+        const currentCommitInfo = execSync(`git -C temp_repo log -1 --format="%cI" ${currentHash}`).toString().trim();
+
+        // Remove the cloned repo
+        execSync(`rm -rf temp_repo`);
+
+        if (latestHash && isNewerCommit(currentHash, latestHash, latestDate, currentCommitInfo)) {
+            issuesFound.push({ engineName, newHash: latestHash.substring(0, 7), oldHash: currentHash });
+        }
+    } catch (error) {
+        console.error(`Error fetching SourceForge commits for ${gitOrg}/${gitRepo}:`, error.message);
     }
 }
 
