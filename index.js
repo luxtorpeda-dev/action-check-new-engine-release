@@ -253,21 +253,31 @@ async function checkSourceForgeCommits(gitOrg, gitRepo, currentHash, issuesFound
 
         const repoUrl = `https://git.code.sf.net/p/${gitOrg}/${gitRepo}`;
 
-        // Clone the repo into a temp directory
-        execSync(`git clone --depth=1 ${repoUrl} temp_repo`, { stdio: 'ignore' });
+        // Clone the repo into a temp directory (shallow clone for speed)
+        execSync(`git clone --depth=50 ${repoUrl} temp_repo`, { stdio: 'ignore' });
 
         // Get the latest commit hash and date
         const latestCommit = execSync(`git -C temp_repo log -1 --format="%H %cI"`).toString().trim();
-        const [latestHash, latestDate] = latestCommit.split(' ');
+        const [latestFullHash, latestDate] = latestCommit.split(' ');
 
-        // Get current commit's date
-        const currentCommitInfo = execSync(`git -C temp_repo log -1 --format="%cI" ${currentHash}`).toString().trim();
+        // Find the full hash for the given `currentHash` (which might be shortened)
+        let currentFullHash;
+        try {
+            currentFullHash = execSync(`git -C temp_repo rev-parse ${currentHash}`).toString().trim();
+        } catch {
+            console.error(`Error: The commit hash '${currentHash}' does not exist in the repository.`);
+            execSync(`rm -rf temp_repo`); // Clean up
+            return;
+        }
 
-        // Remove the cloned repo
+        // Get the commit date for the current full hash
+        const currentCommitDate = execSync(`git -C temp_repo log -1 --format="%cI" ${currentFullHash}`).toString().trim();
+
+        // Remove the cloned repo after checking
         execSync(`rm -rf temp_repo`);
 
-        if (latestHash && isNewerCommit(currentHash, latestHash, latestDate, currentCommitInfo)) {
-            issuesFound.push({ engineName, newHash: latestHash.substring(0, 7), oldHash: currentHash });
+        if (latestFullHash && isNewerCommit(currentFullHash, latestFullHash, latestDate, currentCommitDate)) {
+            issuesFound.push({ engineName, newHash: latestFullHash.substring(0, 7), oldHash: currentHash });
         }
     } catch (error) {
         console.error(`Error fetching SourceForge commits for ${gitOrg}/${gitRepo}:`, error.message);
