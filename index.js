@@ -85,6 +85,14 @@ async function checkEngine(engineName, issuesFound) {
         return;
     }
 
+    if(commitMode === 'tag' && !envData.COMMIT_TAG) {
+        return;
+    }
+
+    if(commitMode === 'hash' && !envData.COMMIT_HASH) {
+        return;
+    }
+
     const repoInfo = await getGitOrgRepo(engineFolderPath);
 
     if (!repoInfo) {
