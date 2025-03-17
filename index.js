@@ -75,6 +75,7 @@ async function checkEngine(engineName, issuesFound) {
 
     const envJsonStr = await fs.readFile(envJsonPath, 'utf-8');
     const envData = JSON.parse(envJsonStr);
+    const commitMode = core.getInput('commit_mode');
 
     if (envData.COMMIT_TAG_FREEZE || envData.COMMIT_HASH_FREEZE) {
         return;
