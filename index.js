@@ -369,14 +369,7 @@ function isNewerCommit(currentHash, latestHash, latestDateStr, currentDateStr) {
         return false; // The commit hashes match, so no update needed
     }
 
-    const latestDate = new Date(latestDateStr);
-    const currentDate = new Date(currentDateStr);
-
-    // Ensure latest commit is at least **7 full days newer**
-    const sevenDaysLater = new Date(currentDate);
-    sevenDaysLater.setDate(currentDate.getDate() + 7);
-
-    return latestDate >= sevenDaysLater;
+    return true;
 }
 
 async function run() {
