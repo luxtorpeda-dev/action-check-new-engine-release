@@ -391,7 +391,11 @@ async function run() {
 
         console.info(`issuesFound: ${JSON.stringify(issuesFound)}`);
 
-        core.setOutput('matrix', JSON.stringify({ include: issuesFound }));
+        if(!issuesFound.length) {
+            core.setOutput('matrix', JSON.stringify({});
+        } else {
+            core.setOutput('matrix', JSON.stringify({ include: issuesFound }));
+        }
     } catch (error) {
         core.setFailed(error.message);
     }
