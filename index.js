@@ -392,7 +392,7 @@ async function run() {
         console.info(`issuesFound: ${JSON.stringify(issuesFound)}`);
 
         if(!issuesFound.length) {
-            core.setOutput('matrix', JSON.stringify({});
+            core.setOutput('matrix', JSON.stringify({}));
         } else {
             core.setOutput('matrix', JSON.stringify({ include: issuesFound }));
         }
