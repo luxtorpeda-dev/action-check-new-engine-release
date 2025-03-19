@@ -389,6 +389,8 @@ async function run() {
             await checkEngine(engine, issuesFound);
         }
 
+        console.info(`issuesFound: ${JSON.stringify(issuesFound)}`);
+
         core.setOutput('matrix', JSON.stringify({ include: issuesFound }));
     } catch (error) {
         core.setFailed(error.message);
