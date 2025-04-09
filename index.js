@@ -369,7 +369,7 @@ async function checkGitlabCommits(gitOrg, gitRepo, currentHash, issuesFound, eng
 }
 
 function isValidTag(newTag, currentTag) {
-    return newTag !== currentTag && !['latest', 'nightly'].includes(newTag.toLowerCase());
+    return newTag !== currentTag && !['latest', 'nightly', 'init'].includes(newTag.toLowerCase());
 }
 
 function isNewerCommit(currentHash, latestHash, latestDateStr, currentDateStr) {
