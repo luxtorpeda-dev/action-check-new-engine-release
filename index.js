@@ -109,7 +109,7 @@ async function checkEngine(engineName, issuesFound) {
             await checkGithubTags(gitOrg, gitRepo, envData.COMMIT_TAG, issuesFound, engineName);
         }
         if (envData.COMMIT_HASH) {
-            await checkGithubCommits(gitOrg, gitRepo, envData.COMMIT_HASH, issuesFound, engineName);
+            await checkGithubCommits(gitOrg, gitRepo, envData.COMMIT_HASH, issuesFound, engineName, envData.COMMIT_HASH_BASE_BRANCH);
         }
     } else if (platform === 'bitbucket') {
         if (envData.COMMIT_TAG) {
@@ -172,15 +172,17 @@ async function checkGithubTags(gitOrg, gitRepo, currentTag, issuesFound, engineN
     }
 }
 
-async function checkGithubCommits(gitOrg, gitRepo, currentHash, issuesFound, engineName) {
+async function checkGithubCommits(gitOrg, gitRepo, currentHash, issuesFound, engineName, branchName) {
     const octokit = new Octokit({ auth: core.getInput('token') });
 
     try {
         // Get latest commit
-        const response = await octokit.request('GET /repos/{owner}/{repo}/commits', {
+        const listParams = {
             owner: gitOrg,
-            repo: gitRepo
-        });
+            repo: gitRepo,
+            ...(branchName && { sha: branchName })
+        };
+        const response = await octokit.request('GET /repos/{owner}/{repo}/commits', listParams);
 
         const latestCommit = response.data[0];
 
