@@ -186,16 +186,7 @@ async function checkGithubCommits(gitOrg, gitRepo, currentHash, issuesFound, eng
 
         const latestCommit = response.data[0];
 
-        // Get current commit's date
-        const currentCommitResponse = await octokit.request('GET /repos/{owner}/{repo}/commits/{sha}', {
-            owner: gitOrg,
-            repo: gitRepo,
-            sha: currentHash
-        });
-
-        const currentCommitDate = currentCommitResponse.data.commit.author.date;
-
-        if (latestCommit && isNewerCommit(currentHash, latestCommit.sha, latestCommit.commit.author.date, currentCommitDate)) {
+        if (latestCommit && isNewerCommit(currentHash, latestCommit.sha, latestCommit.commit.author.date, null)) {
             issuesFound.push({ engineName, newHash: latestCommit.sha.substring(0, 7), oldHash: currentHash });
         }
     } catch (error) {
