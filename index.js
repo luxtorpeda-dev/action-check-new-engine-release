@@ -54,6 +54,13 @@ async function getGitOrgRepo(enginePath) {
                 const gitArr = gitCloneUrl.split('https://git.code.sf.net/p/')[1].split('/');
                 return { gitRepo: gitArr[1].replace('.git', ''), gitOrg: gitArr[0], platform: 'sourceforge' };
             }
+
+            if (gitCloneUrl.includes('git.sr.ht')) {
+                const gitArr = gitCloneUrl.split('https://git.sr.ht/')[1].split('/');
+                return { gitRepo: gitArr[1].replace('.git', ''), gitOrg: gitArr[0], platform: 'sourcehut' };
+            }
+
+            console.info(`git platform not discovered for ${enginePath} - ${gitCloneUrl}`);
         }
 
         if (line === 'pushd source') {
@@ -139,6 +146,8 @@ async function checkEngine(engineName, issuesFound) {
         if (envData.COMMIT_HASH) {
             await checkSourceForgeCommits(gitOrg, gitRepo, envData.COMMIT_HASH, issuesFound, engineName);
         }
+    } else if (platform === 'sourcehut') {
+        await checkSourcehutCommits(gitOrg, gitRepo, envData.COMMIT_HASH, issuesFound, engineName);
     }
 }
 
@@ -283,6 +292,43 @@ async function checkSourceForgeCommits(gitOrg, gitRepo, currentHash, issuesFound
         }
     } catch (error) {
         console.error(`Error fetching SourceForge commits for ${gitOrg}/${gitRepo}:`, error.message);
+    }
+}
+
+async function checkSourcehutCommits(gitOrg, gitRepo, currentHash, issuesFound, engineName) {
+    try {
+        console.log(`Fetching Sourcehut commits for ${gitOrg}/${gitRepo}`);
+
+        const repoUrl = `https://git.sr.ht/${gitOrg}/${gitRepo}`;
+
+        // Clone the repo into a temp directory (shallow clone for speed)
+        execSync(`git clone --depth=50 ${repoUrl} temp_repo`, { stdio: 'ignore' });
+
+        // Get the latest commit hash and date
+        const latestCommit = execSync(`git -C temp_repo log -1 --format="%H %cI"`).toString().trim();
+        const [latestFullHash, latestDate] = latestCommit.split(' ');
+
+        // Find the full hash for the given `currentHash` (which might be shortened)
+        let currentFullHash;
+        try {
+            currentFullHash = execSync(`git -C temp_repo rev-parse ${currentHash}`).toString().trim();
+        } catch {
+            console.error(`Error: The commit hash '${currentHash}' does not exist in the repository.`);
+            execSync(`rm -rf temp_repo`); // Clean up
+            return;
+        }
+
+        // Get the commit date for the current full hash
+        const currentCommitDate = execSync(`git -C temp_repo log -1 --format="%cI" ${currentFullHash}`).toString().trim();
+
+        // Remove the cloned repo after checking
+        execSync(`rm -rf temp_repo`);
+
+        if (latestFullHash && isNewerCommit(currentFullHash, latestFullHash, latestDate, currentCommitDate)) {
+            issuesFound.push({ engineName, newHash: latestFullHash.substring(0, 7), oldHash: currentHash });
+        }
+    } catch (error) {
+        console.error(`Error fetching Sourcehut commits for ${gitOrg}/${gitRepo}:`, error.message);
     }
 }
 
