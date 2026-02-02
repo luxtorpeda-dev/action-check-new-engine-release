@@ -17,7 +17,7 @@
     "@actions/core": "^2.0.2",
     "@actions/github": "^9.0.0",
     "@vercel/ncc": "^0.38.4",
-    "axios": "^1.13.3",
+    "axios": "^1.13.4",
     "octokit": "^5.0.5"
   }
 }
